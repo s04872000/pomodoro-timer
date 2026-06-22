@@ -1,23 +1,16 @@
-/**
- * main.ts
- *
- * Bootstraps Vuetify and other plugins then mounts the App`
- */
-
-// Composables
 import { createApp } from 'vue'
-
-// Plugins
-import { registerPlugins } from '@/plugins'
-
-// Components
+import { createVuetify } from 'vuetify'
+import * as components from 'vuetify/components'
+import * as directives from 'vuetify/directives'
 import App from './App.vue'
+/* Vuetify（如果你有用 Vuetify 才需要） */
+import 'vuetify/styles'
 
-// Styles
-import 'unfonts.css'
+const vuetify = createVuetify({
+  components,
+  directives,
+})
 
-const app = createApp(App)
-
-registerPlugins(app)
-
-app.mount('#app')
+createApp(App)
+  .use(vuetify)
+  .mount('#app')
