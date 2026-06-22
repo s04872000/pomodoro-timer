@@ -1,172 +1,263 @@
-<script setup>
+let timer: number | null = null<template>
+  <div class="app">
+    <h1>🍅 我的番茄鐘 💖</h1>
+
+    <h2>{{ modeText }}</h2>
+    <h1>{{ displayTime }}</h1>
+
+    <div class="buttons">
+      <button @click="setMode('work')">工作 25分</button>
+      <button @click="setMode('break')">休息 5分</button>
+    </div>
+
+    <div class="buttons">
+      <button @click="startTimer">開始</button>
+      <button @click="pauseTimer">暫停</button>
+      <button @click="resetTimer">重置</button>
+      <button @click="skipTimer">跳過</button>
+    </div>
+
+    <hr>
+
+    <h3>🔊 鈴聲</h3>
+
+    <select v-model="selectedSound">
+      <option value="beep">嗶嗶聲</option>
+      <option value="bell">鈴鐺聲</option>
+      <option value="soft">柔和</option>
+    </select>
+
+    <hr>
+
+    <h3>📝 待辦清單</h3>
+
+    <input
+      v-model="newTodo"
+      placeholder="輸入待辦事項"
+      @keyup.enter="addTodo"
+    >
+
+    <button @click="addTodo">新增</button>
+
+    <ul>
+      <li v-for="(todo, index) in todos" :key="index">
+        <input v-model="todo.done" type="checkbox">
+
+        <span :class="{ done: todo.done }">
+          {{ todo.text }}
+        </span>
+
+        <button @click="removeTodo(index)">刪除</button>
+      </li>
+    </ul>
+  </div>
+</template>
+
+<script setup lang="ts">
   import { computed, ref, watch } from 'vue'
 
-  /* =======================
-   To Do List
-======================= */
+  /* ===== 時間設定（安全型別） ===== */
+  const workSeconds = 25 * 60
+  const breakSeconds = 5 * 60
 
-  const todoText = ref('')
+  const mode = ref<'work' | 'break'>('work')
+  const time = ref<number>(workSeconds)
 
-  // 安全讀取 localStorage（避免 JSON 壞掉卡死）
-  let savedTodos = []
+  /* ===== 計時器（重點修正） ===== */
+  let timer: ReturnType<typeof setInterval> | null = null
 
-  try {
-    const raw = localStorage.getItem('todos')
-    savedTodos = raw ? JSON.parse(raw) : []
-  } catch {
-    savedTodos = []
-  }
+  /* ===== 鈴聲 ===== */
+  const selectedSound = ref(localStorage.getItem('sound') || 'beep')
 
-  const todos = ref(savedTodos)
-
-  function addTodo () {
-    if (!todoText.value.trim()) return
-
-    todos.value.push({
-      text: todoText.value,
-      done: false,
-    })
-
-    todoText.value = ''
-  }
-
-  function deleteTodo (index) {
-    todos.value.splice(index, 1)
-  }
-
-  /* 自動存入 localStorage（不會卡死版本） */
-  watch(
-    todos,
-    val => {
-      localStorage.setItem('todos', JSON.stringify(val))
-    },
-    { deep: true },
-  )
-
-  /* =======================
-   Pomodoro Timer
-======================= */
-
-  const isBreak = ref(false)
-
-  const timer = ref(25 * 60)
-
-  let interval = null
-
-  const formatTime = computed(() => {
-    const min = Math.floor(timer.value / 60)
-    const sec = timer.value % 60
-    return `${min}:${String(sec).padStart(2, '0')}`
+  watch(selectedSound, val => {
+    localStorage.setItem('sound', val)
   })
 
+  function playSound () {
+    const ctx = new AudioContext()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+
+    osc.frequency.value
+      = selectedSound.value === 'bell'
+        ? 1200
+        : (selectedSound.value === 'soft'
+          ? 500
+          : 800)
+
+    gain.gain.value = 0.2
+
+    osc.start()
+    osc.stop(ctx.currentTime + 0.2)
+  }
+
+  /* ===== Todo（localStorage 安全版） ===== */
+  type Todo = { text: string, done: boolean }
+
+  const saved = localStorage.getItem('todos')
+
+  const todos = ref<Todo[]>(
+    saved ? JSON.parse(saved) : [],
+  )
+
+  watch(todos, val => {
+    localStorage.setItem('todos', JSON.stringify(val))
+  }, { deep: true })
+
+  const newTodo = ref('')
+
+  /* ===== UI ===== */
+  const modeText = computed(() =>
+    mode.value === 'work' ? '📚 工作時間' : '☕ 休息時間',
+  )
+
+  const displayTime = computed(() => {
+    const m = Math.floor(time.value / 60)
+    const s = time.value % 60
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  })
+
+  /* ===== 核心功能 ===== */
+  function setMode (m: 'work' | 'break') {
+    mode.value = m
+    resetTimer()
+  }
+
   function startTimer () {
-    if (interval) return
+    if (timer) return
 
-    interval = setInterval(() => {
-      timer.value--
+    timer = setInterval(() => {
+      time.value--
 
-      if (timer.value <= 0) {
-        clearInterval(interval)
-        interval = null
+      if (time.value <= 0) {
+        clearInterval(timer!)
+        timer = null
 
-        isBreak.value = !isBreak.value
+        playSound()
+        alert('時間到！')
 
-        timer.value = isBreak.value ? 5 * 60 : 25 * 60
-
-        // 🔔 音效（可自行放 public/bell.mp3）
-        const audio = new Audio('/bell.mp3')
-        audio.play()
-
+        mode.value = mode.value === 'work' ? 'break' : 'work'
+        resetTimer()
         startTimer()
       }
     }, 1000)
   }
 
   function pauseTimer () {
-    clearInterval(interval)
-    interval = null
+    if (timer) {
+      clearInterval(timer)
+      timer = null
+    }
+  }
+
+  function resetTimer () {
+    pauseTimer()
+
+    time.value
+      = mode.value === 'work'
+        ? workSeconds
+        : breakSeconds
   }
 
   function skipTimer () {
-    clearInterval(interval)
-    interval = null
+    pauseTimer()
 
-    isBreak.value = !isBreak.value
-    timer.value = isBreak.value ? 5 * 60 : 25 * 60
+    mode.value = mode.value === 'work' ? 'break' : 'work'
+    resetTimer()
+  }
+
+  /* ===== Todo ===== */
+  function addTodo () {
+    if (!newTodo.value.trim()) return
+
+    todos.value.push({
+      text: newTodo.value,
+      done: false,
+    })
+
+    newTodo.value = ''
+  }
+
+  function removeTodo (index: number) {
+    todos.value.splice(index, 1)
   }
 </script>
 
-<template>
-  <v-app>
-    <v-main>
-      <v-container>
+<style scoped>
+.app {
+  max-width: 700px;
+  margin: 30px auto;
+  padding: 30px;
+  text-align: center;
+  font-family: "Microsoft JhengHei", sans-serif;
+  background: #fff5f8;
+  border-radius: 25px;
+  box-shadow: 0 8px 20px rgba(255, 182, 193, 0.35);
+}
 
-        <!-- =======================
-             番茄鐘
-        ======================== -->
-        <h1>🍅 番茄鐘</h1>
+h1 {
+  color: #ff69b4;
+}
 
-        <h2>
-          {{ isBreak ? '休息時間 😌' : '專注時間 💪' }}
-        </h2>
+h2 {
+  color: #ff85c1;
+}
 
-        <h1 style="font-size: 48px;">
-          {{ formatTime }}
-        </h1>
+.buttons {
+  margin: 15px 0;
+}
 
-        <v-btn color="green" @click="startTimer">開始</v-btn>
-        <v-btn color="orange" @click="pauseTimer">暫停</v-btn>
-        <v-btn color="blue" @click="skipTimer">跳過</v-btn>
+button {
+  border: none;
+  border-radius: 20px;
+  padding: 10px 18px;
+  margin: 5px;
+  background: #ffb6c1;
+  color: white;
+  cursor: pointer;
+  transition: 0.3s;
+}
 
-        <v-divider class="my-6" />
+button:hover {
+  transform: scale(1.05);
+  background: #ff8fb1;
+}
 
-        <!-- =======================
-             To Do List
-        ======================== -->
+input, select {
+  padding: 10px;
+  border-radius: 12px;
+  border: 2px solid #ffc0cb;
+  margin: 5px;
+}
 
-        <h2>📌 待辦事項</h2>
+ul {
+  list-style: none;
+  padding: 0;
+}
 
-        <v-text-field
-          v-model="todoText"
-          label="輸入事項"
-        />
+li {
+  background: white;
+  margin: 10px auto;
+  padding: 10px;
+  max-width: 450px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-radius: 15px;
+  box-shadow: 0 2px 8px rgba(255, 182, 193, 0.25);
+}
 
-        <v-btn color="primary" @click="addTodo">
-          新增
-        </v-btn>
+.done {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
 
-        <v-list class="mt-4">
-
-          <v-list-item
-            v-for="(todo, index) in todos"
-            :key="index"
-          >
-
-            <template #prepend>
-              <v-checkbox v-model="todo.done" />
-            </template>
-
-            <v-list-item-title
-              :style="{
-                textDecoration: todo.done ? 'line-through' : 'none'
-              }"
-            >
-              {{ todo.text }}
-            </v-list-item-title>
-
-            <template #append>
-              <v-btn
-                color="red"
-                icon="mdi-delete"
-                @click="deleteTodo(index)"
-              />
-            </template>
-
-          </v-list-item>
-
-        </v-list>
-
-      </v-container>
-    </v-main>
-  </v-app>
-</template>
+hr {
+  border: none;
+  border-top: 2px dashed #ffc0cb;
+  margin: 25px 0;
+}
+</style>
